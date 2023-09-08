@@ -14,7 +14,8 @@ class fake_server:
     def __init__(self) -> None:
         self.sh_dic = {}
         # to record storage overhead
-        self.file_dic = {}
+        self.init_file_dic = {} # to store inital file
+        self.file_dic = {}      # to store uploaded file
         self.ttl_size = 0
         # to record communication overhead
         self.scheme_comm = 0
@@ -45,10 +46,11 @@ class fake_server:
         # add to index dic
         if sh not in self.sh_dic.keys():
             self.sh_dic[sh] = 1
-        else:
+        # not store file, add row, so sh will add.
+        elif img_hash not in self.init_file_dic.keys():
             self.sh_dic[sh] += 1
         # add to file dic
-        self.file_dic[img_hash] = h * w * 8
+        self.init_file_dic[img_hash] = h * w * 8
     
     def upload(self, img_path):
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
@@ -66,14 +68,13 @@ class fake_server:
             self.odd_comm += h * w * 8
             # add sh and file into dic
             self.sh_dic[sh] = 1
-            self.file_dic[img_hash] = h * w * 8
+            if img_hash not in self.init_file_dic.keys():
+                self.file_dic[img_hash] = h * w * 8
         # sh in sh_dic, verify whether file exists, and find file exists, then not upload
         elif img_hash in self.file_dic.keys():
             self.scheme_comm += h * w * 8 * self.sh_dic[sh]
             self.lever_comm += (h * w * 8 + fake_server.get_key_size()) * self.sh_dic[sh]
             self.odd_comm += h * w * 8
-            # add sh number
-            self.sh_dic[sh] += 1
         # sh in sh_dic, verify whether file exists, and find file not exists, then should upload
         else:
             self.scheme_comm += h * w * 8 * self.sh_dic[sh]
@@ -82,7 +83,8 @@ class fake_server:
             # add sh number
             # add file into dic
             self.sh_dic[sh] += 1
-            self.file_dic[img_hash] = h * w * 8
+            if img_hash not in self.init_file_dic.keys():
+                self.file_dic[img_hash] = h * w * 8
         # record storage overhead
         self.ttl_size += h * w * 8
 
@@ -100,15 +102,14 @@ def test_server(fps : list):
     fcomm.write('exist_rate, scheme, lever, odd,\n')
 
     fdedup = open(out_dir + 'dedup.csv', 'w')
-    fdedup.write('exist_rate, scheme, lever, odd,\n')
+    fdedup.write('exist_rate, scheme, lever, odd, ttl_size\n')
     for exist_rate in range(11):
         exist_rate /= 10
         init_cnt = int(len(fps) * exist_rate)
-        init_range = random.sample(range(len(fps)), len(fps))
         server = fake_server()
         # select init_cnt files to init server
-        for init_idx in init_range[:init_cnt]:
-            server.init_server(fps[init_idx])
+        for fp in fps[:init_cnt]:
+            server.init_server(fp)
         # upload all files
         for fp in fps:
             server.upload(fp)
@@ -122,7 +123,7 @@ def test_server(fps : list):
         scheme_strg = odd_strg + server.sh_len * len(server.file_dic.keys())
         # lever scheme store file content, short hash, and key
         lever_strg = odd_strg + (server.sh_len + fake_server.get_key_size()) * len(server.file_dic.keys())
-        fdedup.write(str(exist_rate) + ', ' + str(scheme_strg / server.ttl_size) + ', ' + str(lever_strg / server.ttl_size) + ', ' + str(odd_strg / server.ttl_size) + ',\n')
+        fdedup.write(str(exist_rate) + ', ' + str(scheme_strg) + ', ' + str(lever_strg) + ', ' + str(odd_strg) + ', ' + str(server.ttl_size) + ',\n')
     fcomm.close()   
 
 if __name__ == '__main__':
